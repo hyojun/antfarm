@@ -6,3 +6,7 @@ dist/
 *.sqlite3
 progress.txt
 progress*.txt
+
+# Workflow secrets
+workflows/**/.env
+agents/**/.env
