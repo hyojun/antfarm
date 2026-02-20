@@ -29,3 +29,7 @@ PR: https://github.com/org/repo/pull/123
 - Don't modify code — just create the PR
 - Don't skip pushing the branch
 - Don't create a vague PR description — include all the context from previous agents
+
+
+<!-- #include shared-tools -->
+See also: ~/workspace/antfarm/workflows/bug-fix/agents/shared-tools.md for Jira & Confluence API tools.

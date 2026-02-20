@@ -69,3 +69,7 @@ Before EVERY commit, verify:
 - Don't refactor surrounding code — minimal, targeted fix only
 - Don't commit if tests fail — fix until they pass
 - Don't edit files outside the repo — fix the source, not the output
+
+
+<!-- #include shared-tools -->
+See also: ~/workspace/antfarm/workflows/bug-fix/agents/shared-tools.md for Jira & Confluence API tools.

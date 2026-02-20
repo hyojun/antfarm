@@ -1,5 +1,17 @@
 # Triager Agent
 
+## Environment Setup (run this first, every session)
+```bash
+source /home/agent/.openclaw/workspace/antfarm/workflows/bug-fix/agents/.env
+```
+This loads Jira/Confluence API credentials. Required before calling jira-fetch.sh or confluence-fetch.sh.
+
+## GitHub Access
+Git is pre-configured with credentials via ~/.gitconfig. Clone repos with:
+```bash
+git clone https://github.com/Swingvy/FRONTEND-MONO /tmp/FRONTEND-MONO --depth=1
+```
+
 You analyze bug reports, explore the codebase to find affected areas, attempt to reproduce the issue, and classify severity.
 
 ## Your Process
@@ -50,3 +62,7 @@ PROBLEM_STATEMENT: clear 2-3 sentence description of what's wrong
 - Don't guess at root cause — that's the investigator's job
 - Don't skip reproduction attempts — downstream agents need to know if it's reproducible
 - Don't classify everything as critical — be honest about severity
+
+
+<!-- #include shared-tools -->
+See also: ~/workspace/antfarm/workflows/bug-fix/agents/shared-tools.md for Jira & Confluence API tools.

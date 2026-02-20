@@ -44,3 +44,7 @@ BASELINE: build passes / tests pass (or describe what failed)
 - Don't skip the baseline — downstream agents need to know the starting state
 
 **Exception:** You DO create `.gitignore` and `.env.example` if they're missing — this is project hygiene, not application code.
+
+
+<!-- #include shared-tools -->
+See also: ~/workspace/antfarm/workflows/bug-fix/agents/shared-tools.md for Jira & Confluence API tools.

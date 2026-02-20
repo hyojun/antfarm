@@ -98,3 +98,7 @@ When visual verification is requested, use the **agent-browser** skill to inspec
 
 - **Pass** if the page renders correctly with proper layout, styling, and element visibility
 - **Fail** if there are broken layouts, missing elements, overlapping content, or styling errors that affect usability
+
+
+<!-- #include shared-tools -->
+See also: ~/workspace/antfarm/workflows/bug-fix/agents/shared-tools.md for Jira & Confluence API tools.

@@ -10,7 +10,7 @@ description: |
   Then integration/E2E testing, PR creation, and code review.
 
 polling:
-  model: default
+  model: sonnet
   timeoutSeconds: 120
 
 agents:
@@ -102,11 +102,19 @@ steps:
       6. Always include "Typecheck passes" as the last criterion in every story
       7. Every story MUST include test criteria — "Tests for [feature] pass"
       8. The developer is expected to write tests as part of each story
+      9. BASE_BRANCH is where the PR will merge INTO (the PR target).
+         If the task specifies "PR Base:" or "PR target:", use that value.
+         Otherwise default to the repo's default branch (master or main).
+      10. BRANCH is the working branch where code will be written.
+          It must ALWAYS be a NEW branch created from BASE_BRANCH.
+          Never work directly on BASE_BRANCH — always create a child branch.
+          Name it descriptively, e.g. feat/sprint1-dto-foundation.
 
       Reply with:
       STATUS: done
       REPO: /path/to/repo
-      BRANCH: feature-branch-name
+      BASE_BRANCH: branch-to-merge-into (PR target)
+      BRANCH: new-working-branch-name (created from BASE_BRANCH)
       STORIES_JSON: [ ... array of story objects ... ]
     expects: "STATUS: done"
     max_retries: 2
@@ -122,16 +130,27 @@ steps:
       {{task}}
 
       REPO: {{repo}}
+      BASE_BRANCH: {{base_branch}}
       BRANCH: {{branch}}
 
       Instructions:
       1. cd into the repo
-      2. Create the feature branch (git checkout -b {{branch}})
-      3. Read package.json, CI config, test config to understand the build/test setup
-      4. Ensure .gitignore exists — if missing, create one appropriate for the detected stack (must include .env, node_modules/, *.key, *.pem at minimum)
-      5. Run the build to establish a baseline
-      6. Run the tests to establish a baseline
-      7. Report what you found
+      2. Checkout the base branch and pull latest:
+         git checkout {{base_branch}} && git pull origin {{base_branch}}
+      3. Create the working branch FROM the base branch:
+         git checkout -b {{branch}}
+      4. Read build config (package.json, pom.xml, build.gradle, Makefile — whatever exists),
+         CI config, and test config to understand the build/test setup
+      5. Ensure .gitignore exists — if missing, create one appropriate for the detected stack
+      6. Set up runtime environment if needed:
+         - Java projects: export JAVA_HOME=/home/agent/.local/java/jdk8u412-b08 && export PATH=$JAVA_HOME/bin:$PATH
+         - Node projects: source ~/.bashrc or use nvm
+      7. Ensure .gitignore includes agent artifact patterns (add if missing):
+         - progress-*.txt
+         - mvnw, mvnw.cmd  (build wrappers should not be committed by agents)
+      8. Run the build to establish a baseline
+      9. Run the tests to establish a baseline
+      10. Report what you found
 
       Reply with:
       STATUS: done
@@ -186,6 +205,8 @@ steps:
       5. Run typecheck / build
       6. Run tests to confirm they pass
       7. Commit: feat: {{current_story_id}} - {{current_story_title}}
+         ⚠️ NEVER commit: mvnw, mvnw.cmd, gradlew, progress-*.txt, .env, *.iml, .idea/
+         These are local artifacts — never stage or commit them.
       8. Append to progress-{{run_id}}.txt
       9. Update Codebase Patterns if you found reusable patterns
 
@@ -217,13 +238,26 @@ steps:
       PROGRESS LOG:
       {{progress}}
 
+      ⚠️ HARD RULES — non-negotiable:
+      - You MUST actually run {{test_cmd}} and {{build_cmd}}. Static code review is NOT verification.
+      - If the runtime/build tool is missing, reply STATUS: retry immediately.
+        Do NOT substitute with code reading or "looks correct" analysis.
+      - If tests FAIL (non-zero exit), reply STATUS: retry with the exact failure output.
+
+      Environment setup (run before any build/test commands):
+      ```
+      export JAVA_HOME=/home/agent/.local/java/jdk8u412-b08
+      export PATH=$JAVA_HOME/bin:$PATH
+      cd {{repo}}
+      ```
+
       Check:
       1. Code exists (not just TODOs or placeholders)
       2. Each acceptance criterion for the story is met
       3. Tests were written for this story's functionality
-      4. Tests pass (run {{test_cmd}})
-      5. No obvious incomplete work
-      6. Typecheck passes
+      4. Run {{build_cmd}} — must exit 0
+      5. Run {{test_cmd}} — must exit 0
+      6. No obvious incomplete work
 
       ## Visual Verification (Frontend Changes)
       Has frontend changes: {{has_frontend_changes}}
@@ -276,6 +310,19 @@ steps:
       PROGRESS LOG:
       {{progress}}
 
+      ⚠️ HARD RULES — non-negotiable:
+      - You MUST actually run {{test_cmd}}. Static code review is NOT testing.
+      - If the runtime is missing, reply STATUS: retry immediately with explanation.
+        Do NOT substitute with "looks correct" analysis or compile-only checks.
+      - If tests FAIL, reply STATUS: retry with the exact failure output.
+
+      Environment setup (run before any build/test commands):
+      ```
+      export JAVA_HOME=/home/agent/.local/java/jdk8u412-b08
+      export PATH=$JAVA_HOME/bin:$PATH
+      cd {{repo}}
+      ```
+
       Your job (integration/E2E testing — unit tests were already written per-story):
       1. Run the full test suite ({{test_cmd}}) to confirm everything passes together
       2. Look for integration issues between stories
@@ -308,6 +355,7 @@ steps:
 
       REPO: {{repo}}
       BRANCH: {{branch}}
+      BASE_BRANCH: {{base_branch}}
       CHANGES: {{changes}}
       RESULTS: {{results}}
 
@@ -319,7 +367,8 @@ steps:
       - Description explaining what and why
       - Reference to what was tested
 
-      Use: gh pr create
+      Use: gh pr create --base {{base_branch}}
+      (IMPORTANT: always pass --base explicitly — never rely on the repo default branch)
 
       Reply with:
       STATUS: done
@@ -371,6 +420,11 @@ steps:
       If {{has_frontend_changes}} is 'false', skip visual review entirely.
 
       If changes needed, add comments to the PR explaining what needs to change.
+
+      ⚠️ CRITICAL — reporting rules:
+      - If APPROVED: write output to file then call `step complete`
+      - If CHANGES REQUESTED: write output to file then call `step fail`
+        (step fail triggers automatic re-implementation — do NOT call step complete)
 
       Reply with:
       STATUS: done
