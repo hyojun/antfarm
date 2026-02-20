@@ -37,11 +37,12 @@ function loadWorkflows(): WorkflowDef[] {
   return results;
 }
 
-function getRuns(workflowId?: string): Array<RunInfo & { steps: StepInfo[] }> {
+function getRuns(workflowId?: string, showArchived = false): Array<RunInfo & { steps: StepInfo[] }> {
   const db = getDb();
+  const archiveClause = showArchived ? "" : "AND (archived IS NULL OR archived = 0)";
   const runs = workflowId
-    ? db.prepare("SELECT * FROM runs WHERE workflow_id = ? ORDER BY created_at DESC").all(workflowId) as RunInfo[]
-    : db.prepare("SELECT * FROM runs ORDER BY created_at DESC").all() as RunInfo[];
+    ? db.prepare(`SELECT * FROM runs WHERE workflow_id = ? ${archiveClause} ORDER BY created_at DESC`).all(workflowId) as RunInfo[]
+    : db.prepare(`SELECT * FROM runs WHERE 1=1 ${archiveClause} ORDER BY created_at DESC`).all() as RunInfo[];
   return runs.map((r) => {
     const steps = db.prepare("SELECT * FROM steps WHERE run_id = ? ORDER BY step_index ASC").all(r.id) as StepInfo[];
     return { ...r, steps };
@@ -93,6 +94,22 @@ export function startDashboard(port = 3333): http.Server {
       return json(res, stories);
     }
 
+    const archiveMatch = p.match(/^\/api\/runs\/([^/]+)\/archive$/);
+    if (archiveMatch) {
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "PATCH, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" });
+        return res.end();
+      }
+      if (req.method === "PATCH") {
+        const db = getDb();
+        const run = db.prepare("SELECT archived FROM runs WHERE id = ?").get(archiveMatch[1]) as { archived: number } | undefined;
+        if (!run) return json(res, { error: "not found" }, 404);
+        const newArchived = run.archived ? 0 : 1;
+        db.prepare("UPDATE runs SET archived = ?, updated_at = datetime('now') WHERE id = ?").run(newArchived, archiveMatch[1]);
+        return json(res, { archived: newArchived });
+      }
+    }
+
     const runMatch = p.match(/^\/api\/runs\/(.+)$/);
     if (runMatch) {
       const run = getRunById(runMatch[1]);
@@ -101,7 +118,8 @@ export function startDashboard(port = 3333): http.Server {
 
     if (p === "/api/runs") {
       const wf = url.searchParams.get("workflow") ?? undefined;
-      return json(res, getRuns(wf));
+      const showArchived = url.searchParams.get("show_archived") === "1";
+      return json(res, getRuns(wf, showArchived));
     }
 
     // Medic API

@@ -92,6 +92,9 @@ function migrate(db: DatabaseSync): void {
   if (!runColNames.has("notify_url")) {
     db.exec("ALTER TABLE runs ADD COLUMN notify_url TEXT");
   }
+  if (!runColNames.has("archived")) {
+    db.exec("ALTER TABLE runs ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
+  }
   if (!runColNames.has("run_number")) {
     db.exec("ALTER TABLE runs ADD COLUMN run_number INTEGER");
     // Backfill existing runs with sequential numbers based on creation order

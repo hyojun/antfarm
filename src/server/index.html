@@ -184,6 +184,15 @@ select:focus{outline:none;border-color:#8ECFC0}
 .step-chevron-open{transform:rotate(90deg)}
 
 /* ── Medic indicator ───────────────────────────────────────────── */
+/* ── Archive ───────────────────────────────────────────────────── */
+.card{position:relative}
+.card-archive-btn{display:none;position:absolute;top:8px;right:8px;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:11px;padding:2px 6px;color:var(--text-secondary);line-height:1.4;transition:background .1s,color .1s}
+.card:hover .card-archive-btn{display:block}
+.card-archive-btn:hover{background:var(--bg-column-header);color:var(--text-primary)}
+.card.archived{opacity:.45;border-style:dashed}
+.archive-toggle{background:none;border:1px solid rgba(255,255,255,.2);color:rgba(255,255,255,.8);border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;transition:border-color .15s,background .15s;white-space:nowrap}
+.archive-toggle:hover,.archive-toggle.active{border-color:rgba(255,255,255,.5);background:rgba(255,255,255,.08)}
+
 .medic-badge{display:flex;align-items:center;gap:6px;font-size:12px;color:rgba(255,255,255,.85);cursor:pointer;padding:4px 10px;border:1px solid rgba(255,255,255,.15);border-radius:6px;background:transparent;transition:border-color .15s,background .15s}
 .medic-badge:hover{border-color:rgba(255,255,255,.4);background:rgba(255,255,255,.05)}
 .medic-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
@@ -211,6 +220,7 @@ select:focus{outline:none;border-color:#8ECFC0}
   <h1><span>antfarm</span> dashboard</h1>
   <select id="wf-select"><option value="">Loading...</option></select>
   <button class="theme-toggle" id="theme-toggle" title="Toggle light/dark mode" aria-label="Toggle light/dark mode">☀️</button>
+  <button class="archive-toggle" id="archive-toggle" onclick="toggleShowArchived()" title="Show/hide archived runs">🗄 Show archived</button>
   <div class="medic-badge" id="medic-badge" onclick="toggleMedicPanel()" title="Medic watchdog status">
     <span class="medic-dot unknown" id="medic-dot"></span>
     <span id="medic-label">Medic</span>
@@ -230,6 +240,7 @@ select:focus{outline:none;border-color:#8ECFC0}
 const API = '';
 let workflows = [];
 let currentWf = null;
+let showArchived = false;
 
 async function fetchJSON(url) {
   const r = await fetch(API + url);
@@ -264,8 +275,23 @@ function selectWorkflow(id) {
 
 async function loadRuns() {
   if (!currentWf) return;
-  const runs = await fetchJSON(`/api/runs?workflow=${currentWf.id}`);
+  const archiveParam = showArchived ? '&show_archived=1' : '';
+  const runs = await fetchJSON(`/api/runs?workflow=${currentWf.id}${archiveParam}`);
   renderBoard(currentWf, runs);
+}
+
+function toggleShowArchived() {
+  showArchived = !showArchived;
+  const btn = document.getElementById('archive-toggle');
+  btn.classList.toggle('active', showArchived);
+  btn.textContent = showArchived ? '🗄 Hide archived' : '🗄 Show archived';
+  if (currentWf) loadRuns();
+}
+
+async function archiveRun(id, isArchived) {
+  await fetch(`/api/runs/${id}/archive`, { method: 'PATCH' });
+  closePanel();
+  if (currentWf) loadRuns();
 }
 
 function getActiveStepId(run) {
@@ -292,11 +318,15 @@ function renderBoard(wf, runs) {
       : cards.map(run => {
           const isDone = run.status === 'done';
           const isFailed = run.status === 'failed' || run.status === 'error';
-          const cls = isDone ? 'done' : isFailed ? 'failed' : '';
+          const isArchived = !!run.archived;
+          const cls = [isDone ? 'done' : isFailed ? 'failed' : '', isArchived ? 'archived' : ''].join(' ').trim();
           const badge = `badge-${run.status}`;
           const time = run.updated_at ? parseTS(run.updated_at)?.toLocaleString() || "" : '';
           const title = run.task.length > 60 ? run.task.slice(0, 57) + '…' : run.task;
+          const archiveLabel = isArchived ? '↩' : '🗄';
+          const archiveTitle = isArchived ? 'Unarchive' : 'Archive';
           return `<div class="card ${cls}" onclick="openRun('${run.id}')">
+            <button class="card-archive-btn" onclick="event.stopPropagation();archiveRun('${run.id}',${isArchived?1:0})" title="${archiveTitle}">${archiveLabel}</button>
             <div class="card-title" title="${run.task.replace(/"/g, '&quot;')}">${title}</div>
             <div class="card-meta">
               <span class="badge ${badge}">${run.status}</span>
@@ -351,6 +381,9 @@ async function openRun(id) {
     <div class="steps-list">${stepsHTML}</div>
     <div id="stories-panel"></div>
     <div id="activity-panel"></div>
+    <div style="margin-top:24px;border-top:1px solid var(--border);padding-top:16px;display:flex;justify-content:flex-end">
+      <button onclick="archiveRun('${run.id}',${run.archived?1:0})" style="background:none;border:1px solid var(--border);border-radius:6px;padding:6px 14px;font-size:12px;color:var(--text-secondary);cursor:pointer;transition:border-color .15s,color .15s" onmouseover="this.style.borderColor='var(--accent-orange)';this.style.color='var(--accent-orange)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">${run.archived ? '↩ Unarchive' : '🗄 Archive'}</button>
+    </div>
   `;
   document.getElementById('overlay').classList.add('open');
   loadStories(id);
