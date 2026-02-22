@@ -185,23 +185,28 @@ function formatCompletedStories(stories: Story[]): string {
 
 // ── T5: STORIES_JSON parsing ────────────────────────────────────────
 
-/**
- * Parse STORIES_JSON from step output and insert stories into the DB.
- */
-function parseAndInsertStories(output: string, runId: string): void {
+/** Extract JSON text for a given keyword (e.g. "STORIES_JSON") from step output. */
+function extractJsonBlock(output: string, keyword: string): string | null {
   const lines = output.split("\n");
-  const startIdx = lines.findIndex(l => l.startsWith("STORIES_JSON:"));
-  if (startIdx === -1) return;
-
-  // Collect JSON text: first line after prefix, then subsequent lines until next KEY: or end
-  const firstLine = lines[startIdx].slice("STORIES_JSON:".length).trim();
+  const startIdx = lines.findIndex(l => l.startsWith(`${keyword}:`));
+  if (startIdx === -1) return null;
+  const firstLine = lines[startIdx].slice(`${keyword}:`.length).trim();
   const jsonLines = [firstLine];
   for (let i = startIdx + 1; i < lines.length; i++) {
     if (/^[A-Z_]+:\s/.test(lines[i])) break;
     jsonLines.push(lines[i]);
   }
+  return jsonLines.join("\n").trim();
+}
 
-  const jsonText = jsonLines.join("\n").trim();
+/**
+ * Parse STORIES_JSON from step output and insert stories into the DB.
+ * Used by the planner step — sets story_index from 0.
+ */
+function parseAndInsertStories(output: string, runId: string): void {
+  const jsonText = extractJsonBlock(output, "STORIES_JSON");
+  if (!jsonText) return;
+
   let stories: any[];
   try {
     stories = JSON.parse(jsonText);
@@ -209,12 +214,8 @@ function parseAndInsertStories(output: string, runId: string): void {
     throw new Error(`Failed to parse STORIES_JSON: ${(e as Error).message}`);
   }
 
-  if (!Array.isArray(stories)) {
-    throw new Error("STORIES_JSON must be an array");
-  }
-  if (stories.length > 20) {
-    throw new Error(`STORIES_JSON has ${stories.length} stories, max is 20`);
-  }
+  if (!Array.isArray(stories)) throw new Error("STORIES_JSON must be an array");
+  if (stories.length > 20) throw new Error(`STORIES_JSON has ${stories.length} stories, max is 20`);
 
   const db = getDb();
   const now = new Date().toISOString();
@@ -225,16 +226,116 @@ function parseAndInsertStories(output: string, runId: string): void {
   const seenIds = new Set<string>();
   for (let i = 0; i < stories.length; i++) {
     const s = stories[i];
-    // Accept both camelCase and snake_case
     const ac = s.acceptanceCriteria ?? s.acceptance_criteria;
     if (!s.id || !s.title || !s.description || !Array.isArray(ac) || ac.length === 0) {
       throw new Error(`STORIES_JSON story at index ${i} missing required fields (id, title, description, acceptanceCriteria)`);
     }
-    if (seenIds.has(s.id)) {
-      throw new Error(`STORIES_JSON has duplicate story id "${s.id}"`);
-    }
+    if (seenIds.has(s.id)) throw new Error(`STORIES_JSON has duplicate story id "${s.id}"`);
     seenIds.add(s.id);
     insert.run(crypto.randomUUID(), runId, i, s.id, s.title, s.description, JSON.stringify(ac), now, now);
+  }
+}
+
+/**
+ * Parse STORIES_ADD_JSON from step output and append new stories to an in-progress run.
+ * story_index continues from the current maximum — no collision with existing stories.
+ * Duplicate story_id check spans the entire run, not just within the JSON.
+ */
+function parseAndAppendStories(output: string, runId: string): void {
+  const jsonText = extractJsonBlock(output, "STORIES_ADD_JSON");
+  if (!jsonText) return;
+
+  let stories: any[];
+  try {
+    stories = JSON.parse(jsonText);
+  } catch (e) {
+    throw new Error(`Failed to parse STORIES_ADD_JSON: ${(e as Error).message}`);
+  }
+
+  if (!Array.isArray(stories)) throw new Error("STORIES_ADD_JSON must be an array");
+
+  const db = getDb();
+
+  // Get the current max story_index for this run
+  const maxRow = db.prepare(
+    "SELECT COALESCE(MAX(story_index), -1) AS max_idx FROM stories WHERE run_id = ?"
+  ).get(runId) as { max_idx: number };
+  let nextIndex = maxRow.max_idx + 1;
+
+  // Get all existing story_ids for this run to prevent duplicates
+  const existingIds = new Set(
+    (db.prepare("SELECT story_id FROM stories WHERE run_id = ?").all(runId) as { story_id: string }[])
+      .map(r => r.story_id)
+  );
+
+  const now = new Date().toISOString();
+  const insert = db.prepare(
+    "INSERT INTO stories (id, run_id, story_index, story_id, title, description, acceptance_criteria, status, retry_count, max_retries, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, 2, ?, ?)"
+  );
+
+  const seenIds = new Set<string>();
+  for (let i = 0; i < stories.length; i++) {
+    const s = stories[i];
+    const ac = s.acceptanceCriteria ?? s.acceptance_criteria;
+    if (!s.id || !s.title || !s.description || !Array.isArray(ac) || ac.length === 0) {
+      throw new Error(`STORIES_ADD_JSON story at index ${i} missing required fields (id, title, description, acceptanceCriteria)`);
+    }
+    if (seenIds.has(s.id) || existingIds.has(s.id)) {
+      throw new Error(`STORIES_ADD_JSON has duplicate story id "${s.id}" (already exists in run)`);
+    }
+    seenIds.add(s.id);
+    insert.run(crypto.randomUUID(), runId, nextIndex++, s.id, s.title, s.description, JSON.stringify(ac), now, now);
+    logger.info(`Story appended dynamically: ${s.id} — ${s.title}`, { runId });
+  }
+}
+
+/**
+ * Parse STORIES_UPDATE_JSON from step output and update pending stories in-place.
+ * Only stories with status='pending' can be updated (not running/done/failed).
+ * Accepts partial updates: only provided fields (title, description, acceptanceCriteria) are changed.
+ */
+function parseAndUpdateStories(output: string, runId: string): void {
+  const jsonText = extractJsonBlock(output, "STORIES_UPDATE_JSON");
+  if (!jsonText) return;
+
+  let updates: any[];
+  try {
+    updates = JSON.parse(jsonText);
+  } catch (e) {
+    throw new Error(`Failed to parse STORIES_UPDATE_JSON: ${(e as Error).message}`);
+  }
+
+  if (!Array.isArray(updates)) throw new Error("STORIES_UPDATE_JSON must be an array");
+
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  for (const u of updates) {
+    if (!u.id) throw new Error("STORIES_UPDATE_JSON: each entry must have an 'id' field");
+
+    const existing = db.prepare(
+      "SELECT id, status, title, description, acceptance_criteria FROM stories WHERE story_id = ? AND run_id = ?"
+    ).get(u.id, runId) as { id: string; status: string; title: string; description: string; acceptance_criteria: string } | undefined;
+
+    if (!existing) {
+      logger.warn(`STORIES_UPDATE_JSON: story "${u.id}" not found in run — skipping`, { runId });
+      continue;
+    }
+    if (existing.status !== "pending") {
+      logger.warn(`STORIES_UPDATE_JSON: story "${u.id}" has status="${existing.status}" — only pending stories can be updated`, { runId });
+      continue;
+    }
+
+    const newTitle = u.title ?? existing.title;
+    const newDesc = u.description ?? existing.description;
+    const ac = u.acceptanceCriteria ?? u.acceptance_criteria;
+    const newAc = ac ? JSON.stringify(ac) : existing.acceptance_criteria;
+
+    db.prepare(
+      "UPDATE stories SET title = ?, description = ?, acceptance_criteria = ?, updated_at = ? WHERE id = ?"
+    ).run(newTitle, newDesc, newAc, now, existing.id);
+
+    logger.info(`Story updated: ${u.id} — ${newTitle}`, { runId });
   }
 }
 
@@ -605,6 +706,12 @@ export function completeStep(stepId: string, output: string): { advanced: boolea
 
   // T5: Parse STORIES_JSON from output (any step, typically the planner)
   parseAndInsertStories(output, step.run_id);
+
+  // T5a: Parse STORIES_ADD_JSON — dynamically append new stories mid-run
+  parseAndAppendStories(output, step.run_id);
+
+  // T5b: Parse STORIES_UPDATE_JSON — update pending stories in-place
+  parseAndUpdateStories(output, step.run_id);
 
   // T7: Loop step completion
   if (step.type === "loop" && step.current_story_id) {

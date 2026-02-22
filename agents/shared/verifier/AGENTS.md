@@ -102,3 +102,23 @@ When visual verification is requested, use the **agent-browser** skill to inspec
 
 <!-- #include shared-tools -->
 See also: ~/workspace/antfarm/workflows/bug-fix/agents/shared-tools.md for Jira & Confluence API tools.
+
+## Dynamic Story Updates
+
+If verification reveals that an upcoming story's acceptance criteria are incorrect or incomplete,
+you may update it using `STORIES_UPDATE_JSON` in your output:
+
+```
+STATUS: done
+STORIES_UPDATE_JSON: [
+  {
+    "id": "US-005",
+    "acceptanceCriteria": [
+      "Revised criterion based on actual codebase requirements",
+      "Tests pass"
+    ]
+  }
+]
+```
+
+Only `pending` stories can be updated. Do not attempt to update running or completed stories.

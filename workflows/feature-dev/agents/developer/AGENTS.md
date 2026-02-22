@@ -137,3 +137,58 @@ Before completing, ask yourself:
 - Did I discover a gotcha future developers should know?
 
 If yes, update your AGENTS.md or memory.
+
+## Dynamic Story Management
+
+During implementation you may discover that additional work is needed, or that upcoming
+stories need to be revised based on what you find.
+
+### Adding new stories mid-run: `STORIES_ADD_JSON`
+
+If you discover work that isn't covered by existing stories, append new pending stories
+by including `STORIES_ADD_JSON:` in your STATUS: done output:
+
+```
+STATUS: done
+STORIES_ADD_JSON: [
+  {
+    "id": "US-007",
+    "title": "Add missing endpoint: isBankReady",
+    "description": "Implement GET /{period}/{payrollType}/{seqNo}/isBankReady in V3 controller",
+    "acceptanceCriteria": [
+      "Endpoint exists at /api/v3/{payrollMode}/payroll/company/{period}/{payrollType}/{seqNo}/isBankReady",
+      "Returns Response<Data<Boolean>>",
+      "Tests pass"
+    ]
+  }
+]
+```
+
+Rules:
+- Story `id` must be unique across the entire run
+- New stories are appended AFTER all existing pending stories (executed last)
+- Only use this when you discover genuinely new work — don't abuse it
+
+### Updating pending stories: `STORIES_UPDATE_JSON`
+
+If you find that an upcoming story's description or criteria need to be revised
+(e.g. you discovered the API structure is different than expected), update it:
+
+```
+STATUS: done
+STORIES_UPDATE_JSON: [
+  {
+    "id": "US-005",
+    "description": "Updated description based on discovered codebase structure...",
+    "acceptanceCriteria": [
+      "Updated criterion 1",
+      "Tests pass"
+    ]
+  }
+]
+```
+
+Rules:
+- Only `pending` stories can be updated (not running/done/failed)
+- All fields are optional — only provided fields are changed
+- `id` is required to identify which story to update
